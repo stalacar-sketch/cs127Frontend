@@ -2,104 +2,189 @@
 import React, { useState, useEffect } from 'react';
 import { useLoanData } from '../../context/LoanContext';
 import { divideEqually } from '../../utils/calculations';
+import * as api from '../../services/api';
 
 export default function GroupAllocation({ entry }) {
-  const { groups, updateEntry } = useLoanData();
+  const { groups } = useLoanData();
   const [activeTab, setActiveTab] = useState('equal');
-  
-  // Find the actual group object to get its members
-  const group = groups.find(g => g.name === entry.borrowerId || g.id === entry.borrowerId);
-  const members = group ? group.members : [];
+  const [allocations, setAllocations] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  // Default to dividing equally on load if no allocations exist
+  // Find the group object using the nested borrowerGroup FK
+  const group = entry?.borrowerGroup
+    ? groups.find(g => g.id === entry.borrowerGroup.id)
+    : null;
+  const members = group?.members || [];
+
+  // Initialise with equal split on load
   useEffect(() => {
-    if (members.length > 0 && (!entry.allocations || entry.allocations.length === 0)) {
-      handleDivideEqually();
+    if (members.length > 0) {
+      applyEqualSplit();
     }
+    // Also try to load existing allocations from the backend
+    api.fetchAllocations(entry.id)
+      .then(data => { if (data && data.length > 0) setAllocations(data); })
+      .catch(() => {}); // Silently ignore if none exist yet
   }, []);
 
-  const handleDivideEqually = () => {
+  const applyEqualSplit = () => {
     setActiveTab('equal');
-    const equalSplit = divideEqually(entry.amountBorrowed, members);
-    updateEntry({ ...entry, allocations: equalSplit });
+    const equalSplit = divideEqually(parseFloat(entry.amountBorrowed), members);
+    setAllocations(equalSplit.map(a => ({
+      payee: { id: a.id, name: a.name },
+      description: `Share for ${a.name}`,
+      amount: a.allocatedAmount,
+      percentage: a.percentage,
+    })));
   };
+
+  const handleDivideEqually = () => applyEqualSplit();
 
   const handleDivideByPercent = () => {
     setActiveTab('percent');
-    // Initialize empty percentages for manual entry
-    const blankPercentSplit = members.map(m => ({ ...m, allocatedAmount: 0, percentage: 0 }));
-    updateEntry({ ...entry, allocations: blankPercentSplit });
+    setAllocations(members.map(m => ({
+      payee: { id: m.id, name: m.name },
+      description: `Share for ${m.name}`,
+      amount: 0,
+      percentage: 0,
+    })));
   };
 
   const handleDivideByAmount = () => {
     setActiveTab('amount');
-    // Initialize empty amounts for manual entry
-    const blankAmountSplit = members.map(m => ({ ...m, allocatedAmount: 0, percentage: 0 }));
-    updateEntry({ ...entry, allocations: blankAmountSplit });
+    setAllocations(members.map(m => ({
+      payee: { id: m.id, name: m.name },
+      description: `Share for ${m.name}`,
+      amount: 0,
+      percentage: 0,
+    })));
+  };
+
+  const updateAllocation = (index, field, value) => {
+    const total = parseFloat(entry.amountBorrowed);
+    setAllocations(prev => prev.map((a, i) => {
+      if (i !== index) return a;
+      if (field === 'amount') {
+        const amt = parseFloat(value) || 0;
+        return { ...a, amount: amt, percentage: total > 0 ? Number(((amt / total) * 100).toFixed(2)) : 0 };
+      }
+      if (field === 'percentage') {
+        const pct = parseFloat(value) || 0;
+        return { ...a, percentage: pct, amount: Number(((pct / 100) * total).toFixed(2)) };
+      }
+      return { ...a, [field]: value };
+    }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const payload = allocations.map(a => ({
+        payee: { id: a.payee?.id || a.id },
+        description: a.description,
+        amount: a.amount,
+        notes: null,
+      }));
+      const saved = await api.saveAllocations(entry.id, payload);
+      setAllocations(saved);
+    } catch (err) {
+      setError('Failed to save allocations: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!group || members.length === 0) return null;
 
+  const btnClass = (tab) =>
+    `px-4 py-2 text-sm font-semibold rounded-md transition ${
+      activeTab === tab
+        ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+    }`;
+
   return (
-    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
       <h3 className="text-xl font-bold text-gray-800 mb-4">Group Payment Allocation</h3>
-      
-      {/* Quick Actions */}
-      <div className="flex space-x-2 mb-6">
-        <button 
-          onClick={handleDivideEqually}
-          className={`px-4 py-2 text-sm font-semibold rounded-md transition ${activeTab === 'equal' ? 'bg-indigo-100 text-indigo-700 border-indigo-200 border' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-        >
-          Divide Equally
-        </button>
-        <button 
-          onClick={handleDivideByPercent}
-          className={`px-4 py-2 text-sm font-semibold rounded-md transition ${activeTab === 'percent' ? 'bg-indigo-100 text-indigo-700 border-indigo-200 border' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-        >
-          Divide by Percent
-        </button>
-        <button 
-          onClick={handleDivideByAmount}
-          className={`px-4 py-2 text-sm font-semibold rounded-md transition ${activeTab === 'amount' ? 'bg-indigo-100 text-indigo-700 border-indigo-200 border' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-        >
-          Divide by Amount
-        </button>
+
+      <div className="flex flex-wrap gap-2 mb-6">
+        <button onClick={handleDivideEqually} className={btnClass('equal')}>Divide Equally</button>
+        <button onClick={handleDivideByPercent} className={btnClass('percent')}>By Percentage</button>
+        <button onClick={handleDivideByAmount} className={btnClass('amount')}>By Amount</button>
       </div>
 
-      {/* Allocation Table */}
-      <table className="w-full text-left border-collapse">
-        <thead>
-          <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-sm">
-            <th className="p-3 w-1/3">Payee (Member)</th>
-            <th className="p-3 w-1/3">Amount to Pay</th>
-            <th className="p-3 w-1/3">Percentage</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {(entry.allocations || []).map((allocation, index) => (
-            <tr key={index} className="hover:bg-gray-50">
-              <td className="p-3 text-sm font-medium text-gray-800">{allocation.name}</td>
-              <td className="p-3 text-sm text-gray-800 font-semibold">
-                {activeTab === 'equal' ? (
-                  `₱ ${allocation.allocatedAmount?.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
-                ) : (
-                  <input type="number" placeholder="0.00" className="border rounded px-2 py-1 w-full max-w-30" disabled={activeTab !== 'amount'} />
-                )}
-              </td>
-              <td className="p-3 text-sm text-gray-500">
-                {activeTab === 'equal' ? (
-                  `${allocation.percentage}%`
-                ) : (
-                  <div className="flex items-center space-x-1">
-                    <input type="number" placeholder="0" className="border rounded px-2 py-1 w-16" disabled={activeTab !== 'percent'} />
-                    <span>%</span>
-                  </div>
-                )}
-              </td>
+      {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b text-gray-500 text-xs uppercase tracking-wide">
+              <th className="p-3">Member</th>
+              <th className="p-3">Amount (₱)</th>
+              <th className="p-3">Percentage</th>
+              <th className="p-3">Status</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {allocations.map((alloc, i) => (
+              <tr key={i} className="hover:bg-gray-50">
+                <td className="p-3 font-medium text-gray-800">{alloc.payee?.name || alloc.name}</td>
+                <td className="p-3">
+                  {activeTab === 'equal' ? (
+                    <span className="font-semibold">
+                      ₱ {Number(alloc.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  ) : (
+                    <input
+                      type="number" step="0.01" min="0"
+                      value={alloc.amount}
+                      onChange={e => updateAllocation(i, 'amount', e.target.value)}
+                      disabled={activeTab !== 'amount'}
+                      className="border rounded px-2 py-1 w-28 disabled:bg-gray-50"
+                    />
+                  )}
+                </td>
+                <td className="p-3">
+                  {activeTab === 'equal' ? (
+                    <span className="text-gray-500">{alloc.percentage}%</span>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number" step="0.01" min="0" max="100"
+                        value={alloc.percentage}
+                        onChange={e => updateAllocation(i, 'percentage', e.target.value)}
+                        disabled={activeTab !== 'percent'}
+                        className="border rounded px-2 py-1 w-20 disabled:bg-gray-50"
+                      />
+                      <span className="text-gray-500">%</span>
+                    </div>
+                  )}
+                </td>
+                <td className="p-3">
+                  {alloc.status ? (
+                    <span className={`text-xs font-bold px-2 py-1 rounded-full uppercase ${
+                      alloc.status === 'PAID' ? 'bg-green-100 text-green-700' :
+                      alloc.status === 'PARTIALLY_PAID' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-red-100 text-red-700'
+                    }`}>
+                      {alloc.status.replace('_', ' ')}
+                    </span>
+                  ) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <button
+        onClick={handleSave} disabled={saving}
+        className="mt-4 bg-indigo-600 text-white px-5 py-2 rounded-lg hover:bg-indigo-700 transition text-sm font-semibold disabled:opacity-50"
+      >
+        {saving ? 'Saving…' : 'Save Allocations'}
+      </button>
     </div>
   );
 }
