@@ -1,42 +1,58 @@
 // src/components/entries/InstallmentTracker.jsx
 import React from 'react';
 import { calculateProgressPercentage } from '../../utils/calculations';
-import { INSTALLMENT_STATUS } from '../../constants/enums';
+import { INSTALLMENT_STATUS, PAYMENT_FREQUENCY_LABELS } from '../../constants/enums';
 
 export default function InstallmentTracker({ entry, onAddPayment }) {
   const details = entry.installmentDetails || {};
-  const progress = calculateProgressPercentage(entry.amountBorrowed, entry.amountRemaining);
-  let currentInstallmentStatus = details.status;
-  const today = new Date().toISOString().split('T')[0];
-  
-  if (currentInstallmentStatus !== INSTALLMENT_STATUS.PAID && currentInstallmentStatus !== INSTALLMENT_STATUS.SKIPPED) {
-    if (today < details.startDate) {
-      currentInstallmentStatus = INSTALLMENT_STATUS.NOT_STARTED;
-    } else if (today >= details.startDate && entry.amountRemaining > 0) {
-      currentInstallmentStatus = INSTALLMENT_STATUS.UNPAID; // Or Delinquent if logic dictates
+  const progress = calculateProgressPercentage(
+    parseFloat(entry.amountBorrowed),
+    parseFloat(entry.amountRemaining)
+  );
+
+  // Compute current status: prefer the value from the backend if available
+  let currentStatus = details.currentStatus || details.status;
+  if (!currentStatus) {
+    const today = new Date().toISOString().split('T')[0];
+    if (details.startDate && today < details.startDate) {
+      currentStatus = INSTALLMENT_STATUS.NOT_STARTED;
+    } else if (parseFloat(entry.amountRemaining) <= 0) {
+      currentStatus = INSTALLMENT_STATUS.PAID;
+    } else {
+      currentStatus = INSTALLMENT_STATUS.UNPAID;
     }
   }
 
+  const statusColors = {
+    [INSTALLMENT_STATUS.PAID]: 'bg-green-100 text-green-700',
+    [INSTALLMENT_STATUS.NOT_STARTED]: 'bg-gray-100 text-gray-600',
+    [INSTALLMENT_STATUS.UNPAID]: 'bg-yellow-100 text-yellow-700',
+    [INSTALLMENT_STATUS.DELINQUENT]: 'bg-red-100 text-red-700',
+    [INSTALLMENT_STATUS.SKIPPED]: 'bg-orange-100 text-orange-700',
+  };
+
   const handleSkipTerm = () => {
-    // In a full production app, this would update a schedule array in context.
-    // For now, we alert the user of the action.
-    if (window.confirm("Are you sure you want to skip the current term?")) {
-      alert("Term marked as SKIPPED. (Next due date shifted).");
+    if (window.confirm('Mark the current term as SKIPPED?')) {
+      alert('Term marked as SKIPPED. (Full skip tracking requires a future enhancement.)');
     }
   };
 
+  const freqLabel = details.paymentFrequency
+    ? (PAYMENT_FREQUENCY_LABELS[details.paymentFrequency] || details.paymentFrequency)
+    : '—';
+
   return (
-    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6">
-      <div className="flex justify-between items-center mb-4">
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+      <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
         <h3 className="text-xl font-bold text-gray-800">Installment Tracker</h3>
-        <div className="space-x-3">
-          <button 
+        <div className="space-x-2">
+          <button
             onClick={handleSkipTerm}
             className="text-orange-600 hover:bg-orange-50 px-3 py-1 rounded border border-orange-200 transition text-sm font-semibold"
           >
             Skip Term
           </button>
-          <button 
+          <button
             onClick={onAddPayment}
             className="bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-700 transition text-sm font-semibold"
           >
@@ -52,34 +68,40 @@ export default function InstallmentTracker({ entry, onAddPayment }) {
           <span className="font-bold text-emerald-600">{progress}% Paid</span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-3">
-          <div 
-            className="bg-emerald-600 h-3 rounded-full transition-all duration-500" 
+          <div
+            className="bg-emerald-500 h-3 rounded-full transition-all duration-500"
             style={{ width: `${progress}%` }}
-          ></div>
+          />
         </div>
       </div>
 
-      {/* Installment Details Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 bg-gray-50 p-4 rounded border">
+      {/* Details Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 bg-gray-50 p-4 rounded-lg border">
         <div>
           <p className="text-xs text-gray-500 uppercase tracking-wide">Status</p>
-          <p className="font-semibold text-gray-800">{details.status || INSTALLMENT_STATUS.NOT_STARTED}</p>
+          <span className={`inline-block text-xs font-bold px-2 py-1 rounded-full mt-1 uppercase ${statusColors[currentStatus] || 'bg-gray-100 text-gray-600'}`}>
+            {currentStatus?.replace('_', ' ') || '—'}
+          </span>
         </div>
         <div>
           <p className="text-xs text-gray-500 uppercase tracking-wide">Start Date</p>
-          <p className="font-semibold text-gray-800">{details.startDate}</p>
+          <p className="font-semibold text-gray-800">{details.startDate || '—'}</p>
         </div>
         <div>
           <p className="text-xs text-gray-500 uppercase tracking-wide">Frequency</p>
-          <p className="font-semibold text-gray-800">{details.paymentFrequency}</p>
+          <p className="font-semibold text-gray-800">{freqLabel}</p>
         </div>
         <div>
           <p className="text-xs text-gray-500 uppercase tracking-wide">Terms</p>
-          <p className="font-semibold text-gray-800">{details.paymentTerms}</p>
+          <p className="font-semibold text-gray-800">{details.paymentTerms ?? '—'}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Amt per Term</p>
-          <p className="font-bold text-emerald-700">₱ {details.amountPerTerm?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+          <p className="text-xs text-gray-500 uppercase tracking-wide">Per Term</p>
+          <p className="font-bold text-emerald-700">
+            {details.paymentAmountPerTerm
+              ? `₱ ${parseFloat(details.paymentAmountPerTerm).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+              : '—'}
+          </p>
         </div>
       </div>
     </div>
