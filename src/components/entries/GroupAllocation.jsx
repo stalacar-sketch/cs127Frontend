@@ -1,34 +1,18 @@
 // src/components/entries/GroupAllocation.jsx
-import React, { useState, useEffect } from 'react';
-import { useLoanData } from '../../context/LoanContext';
+import React, { useState, useEffect, useCallback } from 'react';
 import { divideEqually } from '../../utils/calculations';
 import * as api from '../../services/api';
 
 export default function GroupAllocation({ entry }) {
-  const { groups } = useLoanData();
   const [activeTab, setActiveTab] = useState('equal');
   const [allocations, setAllocations] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Find the group object using the nested borrowerGroup FK
-  const group = entry?.borrowerGroup
-    ? groups.find(g => g.id === entry.borrowerGroup.id)
-    : null;
-  const members = group?.members || [];
+  // Members now come directly from the entry's borrowerGroup (backend now includes them)
+  const members = entry?.borrowerGroup?.members || [];
 
-  // Initialise with equal split on load
-  useEffect(() => {
-    if (members.length > 0) {
-      applyEqualSplit();
-    }
-    // Also try to load existing allocations from the backend
-    api.fetchAllocations(entry.id)
-      .then(data => { if (data && data.length > 0) setAllocations(data); })
-      .catch(() => {}); // Silently ignore if none exist yet
-  }, []);
-
-  const applyEqualSplit = () => {
+  const applyEqualSplit = useCallback(() => {
     setActiveTab('equal');
     const equalSplit = divideEqually(parseFloat(entry.amountBorrowed), members);
     setAllocations(equalSplit.map(a => ({
@@ -37,7 +21,23 @@ export default function GroupAllocation({ entry }) {
       amount: a.allocatedAmount,
       percentage: a.percentage,
     })));
-  };
+  }, [entry.amountBorrowed, members]);
+
+  // Re-fetch allocations whenever a payment changes entry.amountRemaining
+  // so the status column stays up to date without a page refresh.
+  useEffect(() => {
+    api.fetchAllocations(entry.id)
+      .then(data => {
+        if (data && data.length > 0) {
+          setAllocations(data);
+        } else if (members.length > 0) {
+          applyEqualSplit();
+        }
+      })
+      .catch(() => {
+        if (members.length > 0) applyEqualSplit();
+      });
+  }, [entry.id, entry.amountRemaining]); // re-runs after every payment
 
   const handleDivideEqually = () => applyEqualSplit();
 
@@ -96,7 +96,7 @@ export default function GroupAllocation({ entry }) {
     }
   };
 
-  if (!group || members.length === 0) return null;
+  if (!members.length) return null;
 
   const btnClass = (tab) =>
     `px-4 py-2 text-sm font-semibold rounded-md transition ${
@@ -104,6 +104,20 @@ export default function GroupAllocation({ entry }) {
         ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
     }`;
+
+  const statusBadge = (status) => {
+    if (!status) return <span className="text-gray-400">—</span>;
+    const colors = {
+      PAID: 'bg-green-100 text-green-700',
+      PARTIALLY_PAID: 'bg-yellow-100 text-yellow-700',
+      UNPAID: 'bg-red-100 text-red-700',
+    };
+    return (
+      <span className={`text-xs font-bold px-2 py-1 rounded-full uppercase whitespace-nowrap ${colors[status] || 'bg-gray-100 text-gray-600'}`}>
+        {status.replace(/_/g, ' ')}
+      </span>
+    );
+  };
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -121,16 +135,18 @@ export default function GroupAllocation({ entry }) {
         <table className="w-full text-left text-sm border-collapse">
           <thead>
             <tr className="bg-gray-50 border-b text-gray-500 text-xs uppercase tracking-wide">
-              <th className="p-3">Member</th>
-              <th className="p-3">Amount (₱)</th>
-              <th className="p-3">Percentage</th>
-              <th className="p-3">Status</th>
+              <th className="p-3 whitespace-nowrap">Member</th>
+              <th className="p-3 whitespace-nowrap">Amount (₱)</th>
+              <th className="p-3 whitespace-nowrap">Percentage</th>
+              <th className="p-3 whitespace-nowrap">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {allocations.map((alloc, i) => (
               <tr key={i} className="hover:bg-gray-50">
-                <td className="p-3 font-medium text-gray-800">{alloc.payee?.name || alloc.name}</td>
+                <td className="p-3 font-medium text-gray-800 whitespace-nowrap">
+                  {alloc.payee?.name || alloc.name}
+                </td>
                 <td className="p-3">
                   {activeTab === 'equal' ? (
                     <span className="font-semibold">
@@ -148,12 +164,12 @@ export default function GroupAllocation({ entry }) {
                 </td>
                 <td className="p-3">
                   {activeTab === 'equal' ? (
-                    <span className="text-gray-500">{alloc.percentage}%</span>
+                    <span className="text-gray-500">{alloc.percentage ?? alloc.percentageOfTotal}%</span>
                   ) : (
                     <div className="flex items-center gap-1">
                       <input
                         type="number" step="0.01" min="0" max="100"
-                        value={alloc.percentage}
+                        value={alloc.percentage ?? alloc.percentageOfTotal ?? 0}
                         onChange={e => updateAllocation(i, 'percentage', e.target.value)}
                         disabled={activeTab !== 'percent'}
                         className="border rounded px-2 py-1 w-20 disabled:bg-gray-50"
@@ -162,17 +178,7 @@ export default function GroupAllocation({ entry }) {
                     </div>
                   )}
                 </td>
-                <td className="p-3">
-                  {alloc.status ? (
-                    <span className={`text-xs font-bold px-2 py-1 rounded-full uppercase ${
-                      alloc.status === 'PAID' ? 'bg-green-100 text-green-700' :
-                      alloc.status === 'PARTIALLY_PAID' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {alloc.status.replace('_', ' ')}
-                    </span>
-                  ) : '—'}
-                </td>
+                <td className="p-3">{statusBadge(alloc.status)}</td>
               </tr>
             ))}
           </tbody>
