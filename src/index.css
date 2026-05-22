@@ -42,8 +42,6 @@ h5,
 h6 {
   font-family: var(--sans);
   font-weight: 600;
-  color: #1f2937;
-  /* gray-800 */
   margin: 0;
 }
 

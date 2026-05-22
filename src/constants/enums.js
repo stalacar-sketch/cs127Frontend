@@ -7,7 +7,7 @@ export const TRANSACTION_TYPES = {
   GROUP_EXPENSE: 'GROUP_EXPENSE',
 };
 
-/** Human-readable labels for display in the UI. */
+// Labels for display in the UI.
 export const TRANSACTION_TYPE_LABELS = {
   STRAIGHT_EXPENSE: 'Straight Expense',
   INSTALLMENT_EXPENSE: 'Installment Expense',

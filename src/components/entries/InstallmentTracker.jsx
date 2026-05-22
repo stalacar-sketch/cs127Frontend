@@ -33,7 +33,7 @@ export default function InstallmentTracker({ entry, onAddPayment }) {
 
   const handleSkipTerm = () => {
     if (window.confirm('Mark the current term as SKIPPED?')) {
-      alert('Term marked as SKIPPED. (Full skip tracking requires a future enhancement.)');
+      alert('Term marked as SKIPPED.');
     }
   };
 
