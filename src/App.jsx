@@ -74,7 +74,7 @@ export default function App() {
   return (
     <LoanProvider>
       <Router>
-        <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div className="min-h-screen bg-teal-800 flex flex-col">
           <Navbar />
           <main className="flex-1 pb-12">
             <Routes>

@@ -82,15 +82,14 @@ export default function PeopleGroups() {
   };
 
   const tabClass = (tab) =>
-    `py-2 px-6 font-semibold transition-colors ${
-      activeTab === tab
-        ? 'border-b-2 border-emerald-600 text-emerald-600'
-        : 'text-gray-500 hover:text-emerald-500'
+    `py-2 px-6 font-semibold transition-colors ${activeTab === tab
+      ? 'border-b-2 border-emerald-500 text-emerald-500'
+      : 'text-gray-500 hover:text-emerald-600'
     }`;
 
   return (
     <div className="max-w-4xl mx-auto p-4 sm:p-6 mt-6 sm:mt-8">
-      <h2 className="text-3xl font-bold mb-6 text-gray-800">People &amp; Groups</h2>
+      <h2 className="text-3xl font-bold mb-6 text-white">People &amp; Groups</h2>
 
       {/* Tabs */}
       <div className="flex border-b mb-6">
