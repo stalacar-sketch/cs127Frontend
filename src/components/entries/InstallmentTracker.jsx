@@ -3,14 +3,20 @@ import React from 'react';
 import { calculateProgressPercentage } from '../../utils/calculations';
 import { INSTALLMENT_STATUS, PAYMENT_FREQUENCY_LABELS } from '../../constants/enums';
 
-export default function InstallmentTracker({ entry, onAddPayment }) {
-  const details = entry.installmentDetails || {};
+/**
+ * Receives the parent entry (for amounts/status) and the separately-fetched
+ * installmentDetail object (for schedule fields).
+ */
+export default function InstallmentTracker({ entry, installmentDetail, onAddPayment }) {
+  // installmentDetail is fetched separately by EntryDetails from /api/installments/entry/{id}
+  const details = installmentDetail || {};
+
   const progress = calculateProgressPercentage(
     parseFloat(entry.amountBorrowed),
     parseFloat(entry.amountRemaining)
   );
 
-  // Compute current status: prefer the value from the backend if available
+  // Prefer the backend-computed status; fall back to client-side derivation
   let currentStatus = details.currentStatus || details.status;
   if (!currentStatus) {
     const today = new Date().toISOString().split('T')[0];
@@ -37,8 +43,9 @@ export default function InstallmentTracker({ entry, onAddPayment }) {
     }
   };
 
-  const freqLabel = details.paymentFrequency
-    ? (PAYMENT_FREQUENCY_LABELS[details.paymentFrequency] || details.paymentFrequency)
+  const freqKey = details.paymentFrequency;
+  const freqLabel = freqKey
+    ? (PAYMENT_FREQUENCY_LABELS[freqKey] || freqKey)
     : '—';
 
   return (
@@ -76,34 +83,38 @@ export default function InstallmentTracker({ entry, onAddPayment }) {
       </div>
 
       {/* Details Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 bg-gray-50 p-4 rounded-lg border">
-        <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Status</p>
-          <span className={`inline-block text-xs font-bold px-2 py-1 rounded-full mt-1 uppercase ${statusColors[currentStatus] || 'bg-gray-100 text-gray-600'}`}>
-            {currentStatus?.replace('_', ' ') || '—'}
-          </span>
+      {Object.keys(details).length === 0 ? (
+        <p className="text-sm text-gray-400 italic">No installment schedule found for this entry.</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 bg-gray-50 p-4 rounded-lg border">
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Status</p>
+            <span className={`inline-block text-xs font-bold px-2 py-1 rounded-full mt-1 uppercase ${statusColors[currentStatus] || 'bg-gray-100 text-gray-600'}`}>
+              {currentStatus?.replace(/_/g, ' ') || '—'}
+            </span>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Start Date</p>
+            <p className="font-semibold text-gray-800">{details.startDate || '—'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Frequency</p>
+            <p className="font-semibold text-gray-800">{freqLabel}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Terms</p>
+            <p className="font-semibold text-gray-800">{details.paymentTerms ?? '—'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Per Term</p>
+            <p className="font-bold text-emerald-700">
+              {details.paymentAmountPerTerm
+                ? `₱ ${parseFloat(details.paymentAmountPerTerm).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                : '—'}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Start Date</p>
-          <p className="font-semibold text-gray-800">{details.startDate || '—'}</p>
-        </div>
-        <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Frequency</p>
-          <p className="font-semibold text-gray-800">{freqLabel}</p>
-        </div>
-        <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Terms</p>
-          <p className="font-semibold text-gray-800">{details.paymentTerms ?? '—'}</p>
-        </div>
-        <div>
-          <p className="text-xs text-gray-500 uppercase tracking-wide">Per Term</p>
-          <p className="font-bold text-emerald-700">
-            {details.paymentAmountPerTerm
-              ? `₱ ${parseFloat(details.paymentAmountPerTerm).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
-              : '—'}
-          </p>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

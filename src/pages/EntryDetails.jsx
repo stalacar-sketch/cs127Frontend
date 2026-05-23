@@ -42,6 +42,7 @@ export default function EntryDetails() {
   const [pageError, setPageError] = useState('');
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [submittingEdit, setSubmittingEdit] = useState(false);
+  const [installmentDetail, setInstallmentDetail] = useState(null);
 
   const [paymentData, setPaymentData] = useState({
     paymentDate: new Date().toISOString().split('T')[0],
@@ -68,6 +69,15 @@ export default function EntryDetails() {
       }
     }
   }, [entry]);
+
+  // Fetch installment schedule whenever the entry is an installment type
+  useEffect(() => {
+    if (entry?.transactionType === 'INSTALLMENT_EXPENSE') {
+      api.fetchInstallment(entry.id)
+        .then(data => setInstallmentDetail(data))
+        .catch(() => setInstallmentDetail(null));
+    }
+  }, [entry?.id]);
 
   const loadPayments = async () => {
     if (!id) return;
@@ -244,7 +254,7 @@ export default function EntryDetails() {
         )}
       </div>
 
-      {isInstallment && <InstallmentTracker entry={entry} onAddPayment={() => setShowPaymentForm(true)} />}
+      {isInstallment && <InstallmentTracker entry={entry} installmentDetail={installmentDetail} onAddPayment={() => setShowPaymentForm(true)} />}
       {isGroup && <GroupAllocation entry={entry} />}
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
